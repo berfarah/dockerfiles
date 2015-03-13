@@ -1,0 +1,50 @@
+#!/bin/bash
+
+function tell() { echo -e "\033[34m${1}\033[0m"; }
+declare "$PASSENGER_APP_ENV=true"
+
+if [[ -f /etc/service/app/down ]]; then
+	tail -f /dev/null
+fi
+
+tell "Running app setup script"
+
+dirperm=`stat -c "%u" /home/app`
+appid=`id -u app`
+
+if [[ "$dirperm" != "$appid" ]]; then
+	tell "Changing app ID to $dirperm"
+	usermod -u $dirperm app
+	groupmod -g $dirperm app
+fi
+
+cd /home/app
+
+if [[ -f /home/app/before.sh ]]; then
+	tell "Running before.sh from app dir"
+	/home/app/before.sh
+fi
+
+if [[ $production ]]; then
+	tell "Precompiling assets"
+	su app <<-EOSU
+		rake assets:precompile RAILS_ENV=production
+		rake assets:clean RAILS_ENV=production
+	EOSU
+fi
+
+if [[ $development ]]; then
+	tell "Setting up database"
+	su app <<-EOSU
+		rake db:create
+		rake db:migrate
+		rake db:setup
+	EOSU
+fi
+
+if [[ -f /home/app/after.sh ]]; then
+	tell "Running after.sh from app dir"
+	/home/app/after.sh
+fi
+
+touch /etc/service/app/down
